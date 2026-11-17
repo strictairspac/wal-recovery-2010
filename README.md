@@ -31,11 +31,18 @@ SEED_DEMO=true时启动自动执行种子；自然键查重，不覆盖用户修
 
 crash_after=N表示前N条日志已持久化。最近静止检查点保存全部数据页，检查点后数据页假定均未写回（no-force）。恢复重放日志写入和已abort的撤销，再按LSN倒序撤销未结束事务。独立oracle从检查点账本仅应用已提交事务写入，结果须相同。输出重做/撤销轨迹、事务集合、各阶段账本、SHA256和模型版本。空输入、未知键、事务顺序非法、检查点有活动事务、写锁冲突、崩溃点超限均拒绝。模型不涉及页LSN、CLR、模糊检查点或真实磁盘故障；不是完整ARIES实现。
 
+## 队列生命周期：取消、接管与终态
+排队（queued）和执行中（running）的任务都可取消，`POST /api/recoveries/{id}/cancel` 立即返回，不等待计算结束。取消是一次条件更新，成功后任务进入cancelled终态并释放待处理配额；执行者之后算出的结果无法发布。重复取消返回既有cancelled终态（`cancel_applied=false`），已完成/失败/已取消任务取消返回409。
+
+执行者领取任务时写入owner、attempt（围栏令牌）和租约；计算期间心跳续约。租约过期视为失联，下一个执行者自动接管（takeover），attempt递增并记录领取原因。结果与终态在同一个条件更新中发布，条件是status=running且owner/attempt与领取时一致；因此迟到的原执行者只能被拒绝，不能覆盖接管结果。完成与取消并发时以先成功生效的终态为准；提交结果失败重试时若发现已是自己的同一attempt终态则视为已生效，不重复发布。取消、接管、完成、失败和结果丢弃都写入recovery_events，详情页与导出JSON可见；冻结输入snapshot和原始日志集/故障场景始终只读。
+
+`GET /api/recoveries/{id}` 返回队列元数据与events；`GET /api/recoveries/{id}/events` 单独返回事件；导出包含同样信息，取消的任务导出result为空但保留冻结输入。
+
 ## 工程与开发
-前端原生HTML/CSS/JS+Nginx1.27；后端Python3.11+FastAPI+SQLAlchemy+PyJWT；PostgreSQL16和Redis7；5服务均healthcheck。持久任务队列在PG，单worker通过Redis锁互斥。20条待执行配额，审计记录写入操作，JWT8小时、PBKDF2随机盐密码。后端路由不含/api，Nginx/api/去前缀代理。
+前端原生HTML/CSS/JS+Nginx1.27；后端Python3.11+FastAPI+SQLAlchemy+PyJWT；PostgreSQL16和Redis7；5服务均healthcheck。持久任务队列在PG，单worker通过Redis锁互斥（Redis锁只做串行化，归属以数据库租约为准）。20条待执行配额，审计记录写入操作，JWT8小时、PBKDF2随机盐密码。后端路由不含/api，Nginx/api/去前缀代理。
 
-目录frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}与backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}。本地开发安装backend/requirements.txt并设DATABASE_URL/REDIS_URL/JWT_SECRET，再运行uvicorn src.main:app；前端需代理/api。migrations记录初始化结构，暂无在线升级器。
+目录frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}与backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}。本地开发安装backend/requirements.txt并设DATABASE_URL/REDIS_URL/JWT_SECRET，再运行uvicorn src.main:app；前端需代理/api。migrations记录初始化结构；`src/config/schema.py` 在启动种子时幂等补齐新增列（attempt/owner/租约/原因/结束时间）和recovery_events，既有演练可直接列出、取消和下载。
 
-环境COMPOSE_PROJECT_NAME控制命名，FRONTEND_PORT/BACKEND_PORT/DB_PORT为18246/19246/17746，DB_PASSWORD控制演示数据库密码，JWT_SECRET签名密钥，SEED_DEMO控制种子。命名卷db-data/redis-data/artifacts；共享artifacts预留，导出由冻结快照即时生成。Google Fonts需外网，业务离线可运行。默认凭据仅本地演示。
+环境COMPOSE_PROJECT_NAME控制命名，FRONTEND_PORT/BACKEND_PORT/DB_PORT为18246/19246/17746，DB_PASSWORD控制演示数据库密码，JWT_SECRET签名密钥，SEED_DEMO控制种子，RECOVERY_LEASE_SECONDS（默认30）控制执行器租约与失联接管判定。命名卷db-data/redis-data/artifacts；共享artifacts预留，导出由冻结快照即时生成。Google Fonts需外网，业务离线可运行。默认凭据仅本地演示。
 
-共享枚举roles与任务states定义于backend/src/constants/enums.py、frontend/src/constants/enums.js，状态使用models/entities.py/services/recovery_service.py/worker.py/components/common/status.js；日志操作类型在schemas/log_set.py和pages/logs.js中声明/说明。MIT许可。真实验证见批次test-artifacts/gb-4107/TESTING.md。
+共享枚举roles与任务states定义于backend/src/constants/enums.py、frontend/src/constants/enums.js，状态使用models/entities.py/services/recovery_service.py/worker.py/components/common/status.js；日志操作类型在schemas/log_set.py和pages/logs.js中声明/说明。MIT许可。自动化回归见backend/tests（pytest，SQLite临时库）：运行中/排队取消、失联接管后旧执行者返回、完成与取消竞速、重复取消与重试幂等、既有演练运行与导出。

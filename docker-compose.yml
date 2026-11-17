@@ -32,6 +32,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-local-wal-recovery-secret-change-before-sharing-2026}
       SEED_DEMO: ${SEED_DEMO:-true}
+      RECOVERY_LEASE_SECONDS: ${RECOVERY_LEASE_SECONDS:-30}
     command: sh -c 'python -m scripts.seed_demo && uvicorn src.main:app --host 0.0.0.0 --port 8000'
     ports: ["${BACKEND_PORT:-19246}:8000"]
     volumes: ["artifacts:/artifacts"]

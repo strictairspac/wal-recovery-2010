@@ -32,6 +32,23 @@ class Recovery(Base):
     snapshot: Mapped[dict]=mapped_column(JSON)
     result: Mapped[dict | None]=mapped_column(JSON,nullable=True)
     created_at: Mapped[datetime]=mapped_column(DateTime,default=now)
+    # 队列租约：owner/attempt 作为 fencing token，防止失联执行者覆盖接管结果。
+    attempt: Mapped[int]=mapped_column(Integer,default=0,server_default='0')
+    owner: Mapped[str | None]=mapped_column(String(120),nullable=True)
+    claimed_at: Mapped[datetime | None]=mapped_column(DateTime,nullable=True)
+    heartbeat_at: Mapped[datetime | None]=mapped_column(DateTime,nullable=True)
+    lease_expires_at: Mapped[datetime | None]=mapped_column(DateTime,nullable=True)
+    claim_reason: Mapped[str | None]=mapped_column(String(300),nullable=True)
+    cancel_reason: Mapped[str | None]=mapped_column(String(300),nullable=True)
+    finished_at: Mapped[datetime | None]=mapped_column(DateTime,nullable=True)
+class RecoveryEvent(Base):
+    __tablename__='recovery_events'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    recovery_id: Mapped[int]=mapped_column(ForeignKey('recoveries.id'),index=True)
+    event: Mapped[str]=mapped_column(String(20))
+    actor: Mapped[str]=mapped_column(String(120))
+    reason: Mapped[str]=mapped_column(String(300))
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=now)
 class Audit(Base):
     __tablename__='audits'
     id: Mapped[int]=mapped_column(primary_key=True)

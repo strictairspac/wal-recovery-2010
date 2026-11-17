@@ -1,7 +1,9 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from sqlalchemy import select, text
 from redis import Redis
 from src.config.database import get_db
+from src.config.schema import ensure_schema
 from src.config.settings import REDIS_URL
 from src.middlewares.errors import ErrorMiddleware
 from src.middlewares.request_id import RequestIdMiddleware
@@ -9,7 +11,12 @@ from src.middlewares.auth import admin
 from src.models.entities import Audit
 from src.utils.serialize import record
 from src.routes import auth, log_sets, crash_cases, recoveries
-app = FastAPI(title='采样账本 WAL 恢复演练')
+@asynccontextmanager
+async def lifespan(_app):
+    # 幂等补齐队列列与事件表；既有演练无需手工迁移即可查看、取消和导出。
+    ensure_schema()
+    yield
+app = FastAPI(title='采样账本 WAL 恢复演练', lifespan=lifespan)
 app.add_middleware(ErrorMiddleware)
 app.add_middleware(RequestIdMiddleware)
 for module in (auth, log_sets, crash_cases, recoveries): app.include_router(module.router)

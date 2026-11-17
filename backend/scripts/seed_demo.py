@@ -1,11 +1,12 @@
 import os
 from sqlalchemy import select
-from src.config.database import Base,engine,Session
+from src.config.database import engine,Session
+from src.config.schema import ensure_schema
 from src.models.entities import User,LogSet,CrashCase
 from src.utils.security import hash_password
 RECORDS=[{'op':'begin','tx':'T1'},{'op':'write','tx':'T1','key':'sample_A','value':75},{'op':'commit','tx':'T1'},{'op':'checkpoint'},{'op':'begin','tx':'T2'},{'op':'write','tx':'T2','key':'sample_B','value':40},{'op':'begin','tx':'T3'},{'op':'write','tx':'T3','key':'sample_A','value':60},{'op':'commit','tx':'T3'},{'op':'write','tx':'T2','key':'sample_B','value':35},{'op':'commit','tx':'T2'}]
 def seed():
-    Base.metadata.create_all(engine)
+    ensure_schema()
     if os.getenv('SEED_DEMO','true').lower()!='true':return
     with Session() as db:
         for role in ('admin','operator','viewer'):
